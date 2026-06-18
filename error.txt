@@ -1,0 +1,2 @@
+ls: cannot access 'nonexitant.txt': No such file or directory
+Again hello
