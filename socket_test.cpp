@@ -9,13 +9,14 @@ int main()
 {
     cout<<"Hello worlds\n";
     int id=socket(AF_INET,SOCK_STREAM,0);
+    cout<<getpid()<<endl;
     if(id<0)
     {
         cout<<"Error occured\n";
     }
     else{
         cout<<"Socket opend succfully with id: "<<id<<endl;
-        sleep(5);
+        sleep(30);
         close(id);
         cout<<"Scoket closed\n";
 
