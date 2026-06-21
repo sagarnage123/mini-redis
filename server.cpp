@@ -34,8 +34,11 @@ int main()
         return 0;
     }
     char buffer[1024]={0};
-    recv(clientFd,buffer,sizeof(buffer),0);
-    cout<<"Message from client: "<<buffer<<endl;
+    while(1)
+    {
+        recv(clientFd,buffer,sizeof(buffer),0);
+        cout<<"Message from client: "<<buffer<<endl;
+    }
     close(serverFd);
 
     return 0;
