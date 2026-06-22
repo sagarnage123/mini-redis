@@ -35,7 +35,7 @@ int main()
     listen(socketId,5);
 
     int clientId=accept(socketId,nullptr,nullptr);
-    int saftey=10000
+    int saftey=10000;
 
     while(clientId<0 && saftey>0)
     {
@@ -43,7 +43,7 @@ int main()
         clientId=accept(socketId,nullptr,nullptr);
         saftey--;
     }
-    cout<<"Client Connceted\n";
+    cout<<"Client Connected\n";
     char buffer[1028]={0};
     bool flag=true;
     cout<<"Send message if you want to or press exit to stop\n";
