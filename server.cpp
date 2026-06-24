@@ -35,13 +35,12 @@ int main()
     listen(socketId,5);
 
     int clientId=accept(socketId,nullptr,nullptr);
-    int saftey=10000;
-
-    while(clientId<0 && saftey>0)
+    
+    while(clientId<0 )
     {
         cout<<"Connect the client\n"<<"Returned value : "<<clientId<<endl;
         clientId=accept(socketId,nullptr,nullptr);
-        saftey--;
+        sleep(1);
     }
     cout<<"Client Connected\n";
     char buffer[1028]={0};
