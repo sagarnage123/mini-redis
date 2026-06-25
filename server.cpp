@@ -1,68 +1,62 @@
-#include <iostream>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <unistd.h>
+#include<iostream>
 #include<cstring>
+#include<sys/socket.h>
 #include<fcntl.h>
+#include<unistd.h>
+#include<netinet/in.h>
+#include<cerrno>
 using namespace std;
-
-
-
 int main()
 {
-    int socketId=socket(AF_INET,SOCK_STREAM,0);
-    if(socketId<0)
+    int socketFd=socket(AF_INET,SOCK_STREAM,0);
+    if(socketFd<0)
     {
-        cout<<"Socket Creation failed\n";
+        cout<<"Socket Creation Failed\n"<<strerror(errno)<<endl;
         return 0;
     }
-    sockaddr_in serverAddress;
-    serverAddress.sin_family = AF_INET;
-    serverAddress.sin_port = htons(8080);
-    serverAddress.sin_addr.s_addr = INADDR_ANY;
+    cout<<"Socket Created ...\n";
+    sockaddr_in socketAddr;
+    socketAddr.sin_family=AF_INET;
+    socketAddr.sin_port=htons(8080);
+    socketAddr.sin_addr.s_addr=INADDR_ANY;
 
-    if(bind(socketId,(struct sockaddr*)&serverAddress,sizeof(serverAddress))<0)
+    if(bind(socketFd,(struct sockaddr*)&socketAddr,sizeof(socketAddr))<0)
     {
-        cout<<"Binding failed\n";
+        cout<<strerror(errno)<<endl;
         return 0;
     }
-
-    cout<<"Listeining\n";
-    int fl=fcntl(socketId,F_GETFL);
+    cout<<"Socket Bind successfully\n";
+    int fl=fcntl(socketFd,F_GETFL);
     fl|=O_NONBLOCK;
-    fcntl(socketId,F_SETFL,fl);
+    fcntl(socketFd,F_SETFL,fl);
 
-    listen(socketId,5);
+    listen(socketFd,5);
+    cout<<"Listening .... \n";
 
-    int clientId=accept(socketId,nullptr,nullptr);
-    
-    while(clientId<0 )
+    int clientFd=accept(socketFd,nullptr,nullptr);
+    while(clientFd<0)
     {
-        cout<<"Connect the client\n"<<"Returned value : "<<clientId<<endl;
-        clientId=accept(socketId,nullptr,nullptr);
+        clientFd=accept(socketFd,nullptr,nullptr);
+        cout<<strerror(errno)<<"\n";
         sleep(1);
     }
-    cout<<"Client Connected\n";
+    fl=fcntl(clientFd,F_GETFL);
+    fl|=O_NONBLOCK;
+    fcntl(clientFd,F_SETFL,fl);
+    cout<<"Client Connected Succseefully\n";
+
     char buffer[1028]={0};
     bool flag=true;
-    cout<<"Send message if you want to or press exit to stop\n";
+
     while(flag)
     {
         memset(buffer,0,sizeof(buffer));
-        int bytesReceived = recv(clientId,buffer,sizeof(buffer),0);
-
-        if(bytesReceived<0)
-        {
-            cout<<"Receiving failed\n";
-            close(socketId);
-            return 0;
-        }
-
+        recv(clientFd,buffer,sizeof(buffer),0);
         if(strcmp(buffer,"exit\n")==0)
         flag=false;
         cout<<buffer;
-        
     }
-    close(socketId);
+    close(socketFd);
+
     return 0;
 }
