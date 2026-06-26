@@ -1,110 +1,125 @@
+
 #include<iostream>
 #include<cstring>
-#include<sys/socket.h>
-#include<fcntl.h>
 #include<unistd.h>
 #include<netinet/in.h>
-#include<cerrno>
+#include<fcntl.h>
+#include<sys/socket.h>
 #include<sys/epoll.h>
 using namespace std;
 
 void makeNonBlock(int fd)
 {
-     int fl=fcntl(fd,F_GETFL);
-    fl|=O_NONBLOCK;
-    fcntl(fd,F_SETFL,fl);
+    if(fd<0)
+    return ;
 
+    int fl=fcntl(fd,F_GETFL);
+    fcntl(fd,F_SETFL,fl|O_NONBLOCK);
 }
+
 int main()
 {
     int socketFd=socket(AF_INET,SOCK_STREAM,0);
     if(socketFd<0)
     {
-        cout<<"Socket Creation Failed\n"<<strerror(errno)<<endl;
+        cout<<strerror(errno)<<endl;
         return 0;
     }
-    cout<<"Socket Created ...\n";
+    cout<<"Socket Created Successfully\n";
+
     sockaddr_in socketAddr;
     socketAddr.sin_family=AF_INET;
     socketAddr.sin_port=htons(8080);
     socketAddr.sin_addr.s_addr=INADDR_ANY;
 
-    if(bind(socketFd,(struct sockaddr*)&socketAddr,sizeof(socketAddr))<0)
+    if(bind(socketFd,(sockaddr*)&socketAddr,sizeof(socketAddr))<0)
     {
         cout<<strerror(errno)<<endl;
-         close(socketFd);
+        close(socketFd);
         return 0;
     }
-    cout<<"Socket Bind successfully\n";
-
+    cout<<"Socket Binding success\n";
     makeNonBlock(socketFd);
-
-    listen(socketFd,5);
-    cout<<"Listening .... \n";
+    constexpr int MAX_N=64;
+    listen(socketFd,MAX_N);
+    cout<<"Listenining...\n";
 
     int epfd=epoll_create1(0);
-    struct epoll_event ev;
+    if(epfd<0)
+    {
+        cout<<strerror(errno)<<endl;
+        close(socketFd);
+        return 0;
+    }
+    epoll_event ev;
     ev.events=EPOLLIN;
     ev.data.fd=socketFd;
 
     if(epoll_ctl(epfd,EPOLL_CTL_ADD,socketFd,&ev)<0)
     {
         cout<<strerror(errno)<<endl;
-        close(epfd);
         close(socketFd);
+        close(epfd);
         return 0;
     }
-    int n=64;
-    struct epoll_event events[n];
-    char buffer[1048]={0};
-    while(true)
+
+    epoll_event events[MAX_N];
+    char buffer[1028]={0};
+    
+    while(1)
     {
-        int len=epoll_wait(epfd,events,n,-1);
+        int n=epoll_wait(epfd,events,MAX_N,-1);
 
-        for(int i=0;i<len;i++)
+        for(int i=0;i<n;i++)
         {
-            if(events[i].data.fd==socketFd)
+            int fd=events[i].data.fd;
+            if(fd==socketFd)
             {
-                int clientFd=accept(socketFd,nullptr,nullptr);
-                if(clientFd<0)
+                int clientFd=0;
+
+                while(1)
                 {
-                    cout<<strerror(errno)<<endl;
-                    continue;
+                    clientFd=accept(socketFd,nullptr,nullptr);
+
+                    if(clientFd<0)
+                    break;
+
+                    makeNonBlock(clientFd);
+                    epoll_event ev;
+                    ev.events=EPOLLIN;
+                    ev.data.fd=clientFd;
+
+                    if(epoll_ctl(epfd,EPOLL_CTL_ADD,clientFd,&ev)<0)
+                    {
+                        cout<<strerror(errno)<<endl;
+                        close(clientFd);
+                        continue;
+                    }
                 }
-                makeNonBlock(clientFd);
-
-                struct epoll_event ev;
-                ev.events=EPOLLIN;
-                ev.data.fd=clientFd;
-
-                if(epoll_ctl(epfd,EPOLL_CTL_ADD,clientFd,&ev)<0)
-                {
-                    cout<<strerror(errno)<<endl;
-                    continue;
-
-                }
-                cout<<endl<<"New Entry with Fd : "<<clientFd<<endl;
             }
             else{
-                int clientFd=events[i].data.fd;
-                memset(buffer,0,sizeof(buffer));
-
-                int cur=recv(clientFd,buffer,sizeof(buffer),0);
-                if(cur<=0)
+                int bytesRead=recv(fd,buffer,sizeof(buffer),0);
+                if(bytesRead>0)
                 {
-                    cout<<strerror(errno)<<endl;
-                    close(epfd);
-                    close(socketFd);
-                    return 0;
+                    while(bytesRead>0)
+                    {
+                        cout<<buffer;
+                        memset(buffer,0,sizeof(buffer));
+                        bytesRead=recv(fd,buffer,sizeof(buffer),0);
+                    }
+
                 }
-                else cout<<"Message from: "<<clientFd<<"->"<<buffer;
-                
+                else if(bytesRead==0 || (errno != EAGAIN)){
+                    cout<<strerror(errno)<<" "<<strerror(EAGAIN)<<" "<<fd<<endl;
+                    epoll_event ev;
+                    ev.events=EPOLLIN;
+                    ev.data.fd=fd;
+                    epoll_ctl(epfd,EPOLL_CTL_DEL,fd,&ev);
+                    close(fd);
+                }
             }
         }
-
     }
-
-    
     close(socketFd);
     close(epfd);
 
