@@ -30,12 +30,11 @@ class Client
     string inputBuffer;
     Client()
     {
-        inputBuffer="";
+        
     }
     Client(int fd)
     {
         this->fd=fd;
-        inputBuffer="";
     }
 
 };
@@ -131,11 +130,31 @@ int main()
                         user.inputBuffer+=mess;
                         memset(buffer,0,sizeof(buffer));
                         bytes=recv(fd,buffer,sizeof(buffer),0);
-                        cout<<mess<<" ";
+                        
 
                     }
-                    cout<<endl;
-                    cout<<"Total Buffer For : "<<fd<<" "<<user.inputBuffer<<endl;
+                    int idx=0;
+                    string temp="";
+                    for(int i=0;i<user.inputBuffer.size();i++)
+                    {
+                        char ch=user.inputBuffer[i];
+                        if(ch=='\n')
+                        {
+                            //execution
+                            cout<<temp<<endl;
+                            temp="";
+                            idx=i+1;
+                            
+                        }
+                        else{
+                            temp+=ch;
+                        }
+
+                    }
+                    if(idx<user.inputBuffer.size())
+                    user.inputBuffer=user.inputBuffer.substr(idx);
+                    else user.inputBuffer="";
+
                 }
                 else if(bytes==0)
                 {
