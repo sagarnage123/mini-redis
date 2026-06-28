@@ -1,127 +1,169 @@
-
+#include<bits/stdc++.h>
 #include<iostream>
-#include<cstring>
 #include<unistd.h>
-#include<netinet/in.h>
-#include<fcntl.h>
+#include<cstring>
 #include<sys/socket.h>
 #include<sys/epoll.h>
+#include<netinet/in.h>
+#include<fcntl.h>
+
 using namespace std;
+
+int MAX_CONNECTIONS=64;
 
 void makeNonBlock(int fd)
 {
     if(fd<0)
-    return ;
+    return;
 
-    int fl=fcntl(fd,F_GETFL);
-    fcntl(fd,F_SETFL,fl|O_NONBLOCK);
+    int flag=fcntl(fd,F_GETFL);
+    fcntl(fd,F_SETFL,flag|O_NONBLOCK);
 }
+void printError()
+{
+    cout<<strerror(errno)<<endl;
+}
+class Client
+{
+    public:
+    int fd;
+    string inputBuffer;
+    Client()
+    {
+        inputBuffer="";
+    }
+    Client(int fd)
+    {
+        this->fd=fd;
+        inputBuffer="";
+    }
 
+};
 int main()
 {
-    int socketFd=socket(AF_INET,SOCK_STREAM,0);
-    if(socketFd<0)
+    int serverFd=socket(AF_INET,SOCK_STREAM,0);
+    unordered_map<int,Client> hash;
+
+    if(serverFd<0)
     {
-        cout<<strerror(errno)<<endl;
+        printError();
         return 0;
     }
-    cout<<"Socket Created Successfully\n";
+    cout<<"Socket Created\n";
+    makeNonBlock(serverFd);
 
-    sockaddr_in socketAddr;
-    socketAddr.sin_family=AF_INET;
-    socketAddr.sin_port=htons(8080);
-    socketAddr.sin_addr.s_addr=INADDR_ANY;
+    sockaddr_in serverAddr;
+    serverAddr.sin_family=AF_INET;
+    serverAddr.sin_port=htons(8080);
+    serverAddr.sin_addr.s_addr=INADDR_ANY;
 
-    if(bind(socketFd,(sockaddr*)&socketAddr,sizeof(socketAddr))<0)
+    if(bind(serverFd,(sockaddr*)&serverAddr,sizeof(serverAddr))<0)
     {
-        cout<<strerror(errno)<<endl;
-        close(socketFd);
+        printError();
+        close(serverFd);
         return 0;
     }
-    cout<<"Socket Binding success\n";
-    makeNonBlock(socketFd);
-    constexpr int MAX_N=64;
-    listen(socketFd,MAX_N);
-    cout<<"Listenining...\n";
+    cout<<"SocketBind Success\n";
+    listen(serverFd,MAX_CONNECTIONS);
 
     int epfd=epoll_create1(0);
     if(epfd<0)
     {
-        cout<<strerror(errno)<<endl;
-        close(socketFd);
+        printError();
+        close(serverFd);
         return 0;
     }
+    cout<<"Epoll Instance Created\n";
+
     epoll_event ev;
     ev.events=EPOLLIN;
-    ev.data.fd=socketFd;
-
-    if(epoll_ctl(epfd,EPOLL_CTL_ADD,socketFd,&ev)<0)
+    ev.data.fd=serverFd;
+    if(epoll_ctl(epfd,EPOLL_CTL_ADD,serverFd,&ev)<0)
     {
-        cout<<strerror(errno)<<endl;
-        close(socketFd);
+        printError();
         close(epfd);
+        close(serverFd);
         return 0;
     }
-
-    epoll_event events[MAX_N];
+    cout<<"Epoll Watching Listening Socket\n";
     char buffer[1028]={0};
-    
+    epoll_event events[MAX_CONNECTIONS];
+
     while(1)
     {
-        int n=epoll_wait(epfd,events,MAX_N,-1);
-
+        int n=epoll_wait(epfd,events,MAX_CONNECTIONS,-1);
         for(int i=0;i<n;i++)
         {
             int fd=events[i].data.fd;
-            if(fd==socketFd)
+
+            if(fd==serverFd)
             {
-                int clientFd=0;
-
-                while(1)
+                cout<<"Connection Request Recived\n";
+                int clientFd=accept(serverFd,nullptr,nullptr);
+                if(clientFd<0)
                 {
-                    clientFd=accept(socketFd,nullptr,nullptr);
-
-                    if(clientFd<0)
-                    break;
-
-                    makeNonBlock(clientFd);
-                    epoll_event ev;
-                    ev.events=EPOLLIN;
-                    ev.data.fd=clientFd;
-
-                    if(epoll_ctl(epfd,EPOLL_CTL_ADD,clientFd,&ev)<0)
-                    {
-                        cout<<strerror(errno)<<endl;
-                        close(clientFd);
-                        continue;
-                    }
+                    printError();
+                    continue;
                 }
+                makeNonBlock(clientFd);
+                epoll_event ev;
+                ev.events=EPOLLIN;
+                ev.data.fd=clientFd;
+                if(epoll_ctl(epfd,EPOLL_CTL_ADD,clientFd,&ev)<0)
+                {
+                    printError();
+                    close(clientFd);
+                    continue;
+                }
+               
+                hash[clientFd]=Client(clientFd);
+                cout<<clientFd<<"  Created And Being Watched By Epoll\n";
             }
             else{
-                int bytesRead=recv(fd,buffer,sizeof(buffer),0);
-                if(bytesRead>0)
+                Client &user=hash[fd];
+                memset(buffer,0,sizeof(buffer));
+                int bytes=recv(fd,buffer,sizeof(buffer),0);
+                if(bytes>0)
                 {
-                    while(bytesRead>0)
+                    while(bytes>0)
                     {
-                        cout<<buffer;
+                        string mess(buffer,bytes);
+                        user.inputBuffer+=mess;
                         memset(buffer,0,sizeof(buffer));
-                        bytesRead=recv(fd,buffer,sizeof(buffer),0);
-                    }
+                        bytes=recv(fd,buffer,sizeof(buffer),0);
+                        cout<<mess<<" ";
 
+                    }
+                    cout<<endl;
+                    cout<<"Total Buffer For : "<<fd<<" "<<user.inputBuffer<<endl;
                 }
-                else if(bytesRead==0 || (errno != EAGAIN)){
-                    cout<<strerror(errno)<<" "<<strerror(EAGAIN)<<" "<<fd<<endl;
+                else if(bytes==0)
+                {
+                    cout<<fd<<" Connection Closed By Client\n";
+                    close(fd);
                     epoll_event ev;
                     ev.events=EPOLLIN;
                     ev.data.fd=fd;
                     epoll_ctl(epfd,EPOLL_CTL_DEL,fd,&ev);
-                    close(fd);
+                   
+                    hash.erase(fd);
                 }
+                else
+                {
+                    if(errno!=EAGAIN)
+                    {
+                        cout<<strerror(errno)<<" "<<strerror(EAGAIN)<<" "<<fd<<endl;
+                        epoll_event ev;
+                        ev.events=EPOLLIN;
+                        ev.data.fd=fd;
+                        epoll_ctl(epfd,EPOLL_CTL_DEL,fd,&ev);
+                        close(fd);
+                        hash.erase(fd);
+                    }
+                }
+
             }
         }
     }
-    close(socketFd);
-    close(epfd);
-
     return 0;
 }
