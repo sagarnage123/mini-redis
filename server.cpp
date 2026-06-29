@@ -23,6 +23,17 @@ void printError()
 {
     cout<<strerror(errno)<<endl;
 }
+enum class RespType
+{
+    ARRAY,
+    BULK_STRING,
+    SIMPLE_STRING,
+    INTEGER,
+    ERROR,
+    EMPTY,
+    INVALID
+
+};
 class Client
 {
     public:
@@ -38,6 +49,28 @@ class Client
     }
 
 };
+RespType getRespType(string &inputBuffer)
+{
+    if(inputBuffer.size()==0 || inputBuffer[0]=='\n')
+    return RespType::EMPTY;
+
+    if(inputBuffer[0]=='*')
+    return RespType::ARRAY;
+
+    if(inputBuffer[0]=='$')
+    return RespType::BULK_STRING;
+
+    if(inputBuffer[0]=='+')
+    return RespType::SIMPLE_STRING;
+
+    if(inputBuffer[0]==':')
+    return RespType::INTEGER;
+
+    if(inputBuffer[0]=='-')
+    return RespType::ERROR;
+
+    return RespType::INVALID;
+}
 int main()
 {
     int serverFd=socket(AF_INET,SOCK_STREAM,0);
@@ -133,27 +166,28 @@ int main()
                         
 
                     }
-                    int idx=0;
-                    string temp="";
-                    for(int i=0;i<user.inputBuffer.size();i++)
+                    RespType val=getRespType(user.inputBuffer);
+                    switch (val)
                     {
-                        char ch=user.inputBuffer[i];
-                        if(ch=='\n')
-                        {
-                            //execution
-                            cout<<temp<<endl;
-                            temp="";
-                            idx=i+1;
-                            
-                        }
-                        else{
-                            temp+=ch;
-                        }
-
+                        case RespType::EMPTY:cout<<"EMPTY\n";
+                            break;
+                        case RespType::ARRAY:cout<<"Array\n";
+                            break;
+                        case RespType::BULK_STRING:cout<<"BULK_STRING\n";
+                            break;
+                        case RespType::SIMPLE_STRING :cout<<"SIMPLE_STRING\n";
+                            break;
+                            case RespType::INTEGER:cout<<"INTEGER\n";
+                                break;
+                        case RespType::ERROR:cout<<"ERROR\n";
+                            break;
+                        case RespType::INVALID:cout<<"INVALID\n";
+                            break;
+                        
+                        default:
+                            break;
                     }
-                    if(idx<user.inputBuffer.size())
-                    user.inputBuffer=user.inputBuffer.substr(idx);
-                    else user.inputBuffer="";
+                    user.inputBuffer="";
 
                 }
                 else if(bytes==0)
