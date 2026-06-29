@@ -26,15 +26,16 @@ void printError()
 class Client
 {
     public:
-    int fd;
-    string inputBuffer;
+    int fd,idx;
+    string inputBuffer,parsedBuffer;
     Client()
     {
-        
+        idx=0;
     }
     Client(int fd)
     {
         this->fd=fd;
+        idx=0;
     }
 
 };
@@ -134,8 +135,9 @@ int main()
 
                     }
                     int idx=0;
-                    string temp="";
-                    for(int i=0;i<user.inputBuffer.size();i++)
+                    string &temp=user.parsedBuffer;
+                    int ind=0;
+                    for(int i=user.idx;i<user.inputBuffer.size();i++)
                     {
                         char ch=user.inputBuffer[i];
                         if(ch=='\n')
@@ -152,7 +154,11 @@ int main()
 
                     }
                     if(idx<user.inputBuffer.size())
-                    user.inputBuffer=user.inputBuffer.substr(idx);
+                    {
+                        user.inputBuffer=user.inputBuffer.substr(idx);
+                        user.idx=user.inputBuffer.size();
+
+                    }
                     else user.inputBuffer="";
 
                 }
