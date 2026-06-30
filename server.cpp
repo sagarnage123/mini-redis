@@ -11,18 +11,6 @@ using namespace std;
 
 int MAX_CONNECTIONS=64;
 
-void makeNonBlock(int fd)
-{
-    if(fd<0)
-    return;
-
-    int flag=fcntl(fd,F_GETFL);
-    fcntl(fd,F_SETFL,flag|O_NONBLOCK);
-}
-void printError()
-{
-    cout<<strerror(errno)<<endl;
-}
 enum class RespType
 {
     ARRAY,
@@ -32,6 +20,21 @@ enum class RespType
     ERROR,
     EMPTY,
     INVALID
+
+};
+enum class ParseStatus
+{
+    OK,
+    NEED_MORE_DATA,
+    ERROR
+
+};
+struct ParseResult
+{
+    ParseStatus status;
+    int arrayLength;
+    int bytesConsumed;
+
 
 };
 class Client
@@ -47,29 +50,74 @@ class Client
     {
         this->fd=fd;
     }
-
+    
 };
+
 RespType getRespType(string &inputBuffer)
 {
     if(inputBuffer.size()==0)
     return RespType::EMPTY;
-
+    
     if(inputBuffer[0]=='*')
     return RespType::ARRAY;
-
+    
     if(inputBuffer[0]=='$')
     return RespType::BULK_STRING;
-
+    
     if(inputBuffer[0]=='+')
     return RespType::SIMPLE_STRING;
-
+    
     if(inputBuffer[0]==':')
     return RespType::INTEGER;
-
+    
     if(inputBuffer[0]=='-')
     return RespType::ERROR;
-
+    
     return RespType::INVALID;
+}
+
+ParseResult parse(string &s)
+{
+    ParseResult res;
+    if(getRespType(s) != RespType::ARRAY)
+    {
+        res.status=ParseStatus::ERROR;
+        return res;
+    }
+    int cnt=0;
+    for(int i=1;i<s.size()-1;i++)
+    {
+        if(s[i]=='\\')
+        {
+            res.status=ParseStatus::OK;
+            res.bytesConsumed=i+2;
+            res.arrayLength=cnt;
+            return res;
+        }
+        if(s[i]>='0' && s[i]<='9')
+        {
+            cnt=cnt*10+(s[i]-'0');
+        }
+        else{
+            cout<<s<<" "<<s[i]<<" "<<i<<endl;
+            res.status=ParseStatus::ERROR;
+            return res;
+        }
+    }
+    res.status=ParseStatus::NEED_MORE_DATA;
+    return res;
+}
+void makeNonBlock(int fd)
+{
+    if(fd<0)
+    return;
+
+    int flag=fcntl(fd,F_GETFL);
+    fcntl(fd,F_SETFL,flag|O_NONBLOCK);
+}
+void printError()
+{
+    cout<<strerror(errno)<<endl;
 }
 int main()
 {
@@ -166,28 +214,28 @@ int main()
                         
 
                     }
-                    RespType val=getRespType(user.inputBuffer);
-                    switch (val)
+                    ParseResult res=parse(user.inputBuffer);
+                    if(res.status==ParseStatus::OK)
                     {
-                        case RespType::EMPTY:cout<<"EMPTY\n";
-                            break;
-                        case RespType::ARRAY:cout<<"Array\n";
-                            break;
-                        case RespType::BULK_STRING:cout<<"BULK_STRING\n";
-                            break;
-                        case RespType::SIMPLE_STRING :cout<<"SIMPLE_STRING\n";
-                            break;
-                            case RespType::INTEGER:cout<<"INTEGER\n";
-                                break;
-                        case RespType::ERROR:cout<<"ERROR\n";
-                            break;
-                        case RespType::INVALID:cout<<"INVALID\n";
-                            break;
-                        
-                        default:
-                            break;
+                        cout<<"Array Length : "<<res.arrayLength<<endl;
+                        cout<<"BytesConsumed : "<<res.bytesConsumed<<endl;
+                        user.inputBuffer="";
                     }
-                    user.inputBuffer="";
+                    else if(res.status==ParseStatus::NEED_MORE_DATA)
+                    {
+                        cout<<"Need More Data\n";
+                        continue;
+
+                    }
+                    else 
+                    {
+                        printError();
+                        close(fd);
+                        epoll_event ev;
+                        ev.events=EPOLLIN;
+                        ev.data.fd=fd;
+                        epoll_ctl(epfd,EPOLL_CTL_DEL,fd,&ev);
+                    }
 
                 }
                 else if(bytes==0)
