@@ -51,7 +51,7 @@ class Client
 };
 RespType getRespType(string &inputBuffer)
 {
-    if(inputBuffer.size()==0 || inputBuffer[0]=='\n')
+    if(inputBuffer.size()==0)
     return RespType::EMPTY;
 
     if(inputBuffer[0]=='*')
