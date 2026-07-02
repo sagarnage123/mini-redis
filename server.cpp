@@ -29,13 +29,19 @@ enum class ParseStatus
     ERROR
 
 };
-struct ParseResult
+struct ParseArrayHeader
 {
     ParseStatus status;
     int arrayLength;
     int bytesConsumed;
 
 
+};
+struct ParseBulkString
+{
+    ParseStatus status;
+    string bulkString;
+    int bytesConsumed;
 };
 class Client
 {
@@ -76,9 +82,9 @@ RespType getRespType(string &inputBuffer)
     return RespType::INVALID;
 }
 
-ParseResult parse(string &s)
+ParseArrayHeader parseHeader(string &s)
 {
-    ParseResult res;
+    ParseArrayHeader res;
     if(getRespType(s) != RespType::ARRAY)
     {
         res.status=ParseStatus::ERROR;
@@ -87,7 +93,7 @@ ParseResult parse(string &s)
     int cnt=0;
     for(int i=1;i<s.size()-1;i++)
     {
-        if(s[i]=='\\')
+        if(s[i]=='\r' && s[i+1]=='\n')
         {
             res.status=ParseStatus::OK;
             res.bytesConsumed=i+2;
@@ -99,13 +105,68 @@ ParseResult parse(string &s)
             cnt=cnt*10+(s[i]-'0');
         }
         else{
-            cout<<s<<" "<<s[i]<<" "<<i<<endl;
+            
             res.status=ParseStatus::ERROR;
             return res;
         }
     }
     res.status=ParseStatus::NEED_MORE_DATA;
     return res;
+}
+ParseBulkString parseString(string &s)
+{
+    ParseArrayHeader isArray=parseHeader(s);
+    ParseBulkString res;
+    if(isArray.status!=ParseStatus::OK)
+    {
+        res.status=isArray.status;
+        return res;
+    }
+    int i=isArray.bytesConsumed;
+    if(i>=s.size() || i+1>=s.size())
+    {
+        res.status=ParseStatus::NEED_MORE_DATA;
+        return res;
+    }
+    if(s[i]!='$' || !(s[i+1]>='1' && s[i+1]<='9'))
+    {
+        res.status=ParseStatus::ERROR;
+        return res;
+    }
+    i++;
+    int len=0;
+    for(;i<s.size()-1;i++)
+    {
+        if(s[i]=='\r' && s[i+1]=='\n')
+        {
+            break;
+        }
+        if(s[i]>='0' && s[i]<='9')
+        {
+            len=len*10+(s[i]-'0');
+        }
+        else{
+            res.status=ParseStatus::ERROR;
+            return res;
+        }
+    }
+    i+=2;
+    if(i+len+2>s.size())
+    {
+        res.status=ParseStatus::NEED_MORE_DATA;
+        return res;
+    }
+    if(s[i+len]!='\r' || s[i+len+1]!='\n')
+    {
+        res.status=ParseStatus::ERROR;
+    }
+    for(int idx=i;idx<i+len;idx++)
+    {
+        res.bulkString+=s[idx];
+    }
+    res.bytesConsumed=i+len+2;
+    return res;
+
 }
 void makeNonBlock(int fd)
 {
@@ -214,12 +275,28 @@ int main()
                         
 
                     }
-                    ParseResult res=parse(user.inputBuffer);
+                    ParseArrayHeader res=parseHeader(user.inputBuffer);
                     if(res.status==ParseStatus::OK)
                     {
                         cout<<"Array Length : "<<res.arrayLength<<endl;
                         cout<<"BytesConsumed : "<<res.bytesConsumed<<endl;
-                        user.inputBuffer="";
+                        auto bsres=parseString(user.inputBuffer);
+                        if(bsres.status==ParseStatus::OK)
+                        {
+                            cout<<"Bulk String : "<<bsres.bulkString<<endl;
+                            cout<<"Bytes : "<<bsres.bytesConsumed<<endl;
+                        }
+                        else if(bsres.status==ParseStatus::NEED_MORE_DATA)
+                        continue;
+                        else{
+                             cout<<"Formate Error\n";
+                            close(fd);
+                            epoll_event ev;
+                            ev.events=EPOLLIN;
+                            ev.data.fd=fd;
+                            epoll_ctl(epfd,EPOLL_CTL_DEL,fd,&ev);
+
+                        }
                     }
                     else if(res.status==ParseStatus::NEED_MORE_DATA)
                     {
@@ -229,13 +306,14 @@ int main()
                     }
                     else 
                     {
-                        printError();
+                        cout<<"Formate Error\n";
                         close(fd);
                         epoll_event ev;
                         ev.events=EPOLLIN;
                         ev.data.fd=fd;
                         epoll_ctl(epfd,EPOLL_CTL_DEL,fd,&ev);
                     }
+                    cout<<user.inputBuffer<<endl;
 
                 }
                 else if(bytes==0)
@@ -262,6 +340,7 @@ int main()
                         hash.erase(fd);
                     }
                 }
+
 
             }
         }
