@@ -268,6 +268,7 @@ int main()
                 {
                     while(bytes>0)
                     {
+                        cout<<mess<<" ";
                         string mess(buffer,bytes);
                         user.inputBuffer+=mess;
                         memset(buffer,0,sizeof(buffer));
@@ -275,6 +276,7 @@ int main()
                         
 
                     }
+                    cout<<endl<<"Received Message: "<<user.inputBuffer<<endl;
                     ParseArrayHeader res=parseHeader(user.inputBuffer);
                     if(res.status==ParseStatus::OK)
                     {
@@ -289,7 +291,7 @@ int main()
                         else if(bsres.status==ParseStatus::NEED_MORE_DATA)
                         continue;
                         else{
-                             cout<<"Formate Error\n";
+                            cout<<"Formate Error\n";
                             close(fd);
                             epoll_event ev;
                             ev.events=EPOLLIN;
@@ -313,7 +315,8 @@ int main()
                         ev.data.fd=fd;
                         epoll_ctl(epfd,EPOLL_CTL_DEL,fd,&ev);
                     }
-                    cout<<user.inputBuffer<<endl;
+                    // cout<<user.inputBuffer<<endl;
+                    
 
                 }
                 else if(bytes==0)
