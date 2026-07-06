@@ -29,7 +29,7 @@ enum class ParseStatus
     ERROR
 
 };
-struct ParseArrayHeader
+struct ArrayHeaderResult
 {
     ParseStatus status;
     int arrayLength;
@@ -37,7 +37,7 @@ struct ParseArrayHeader
 
 
 };
-struct ParseBulkString
+struct BulkStringResult
 {
     ParseStatus status;
     string bulkString;
@@ -82,9 +82,9 @@ RespType getRespType(string &inputBuffer)
     return RespType::INVALID;
 }
 
-ParseArrayHeader parseHeader(string &s)
+ArrayHeaderResult parseHeader(string &s)
 {
-    ParseArrayHeader res;
+    ArrayHeaderResult res;
     if(getRespType(s) != RespType::ARRAY)
     {
         res.status=ParseStatus::ERROR;
@@ -113,23 +113,28 @@ ParseArrayHeader parseHeader(string &s)
     res.status=ParseStatus::NEED_MORE_DATA;
     return res;
 }
-ParseBulkString parseString(string &s)
+BulkStringResult parseString(string &s,int offset=0)
 {
-    ParseArrayHeader isArray=parseHeader(s);
-    ParseBulkString res;
-    if(isArray.status!=ParseStatus::OK)
+   
+    BulkStringResult
+ res;
+    if(getRespType())
     {
+        
         res.status=isArray.status;
         return res;
     }
+   
     int i=isArray.bytesConsumed;
     if(i>=s.size() || i+1>=s.size())
     {
+    
         res.status=ParseStatus::NEED_MORE_DATA;
         return res;
     }
     if(s[i]!='$' || !(s[i+1]>='1' && s[i+1]<='9'))
     {
+        cout<<"No $ or invalid number after $ sign: "<<i<<" "<<s[i]<<" "<<s[i+1]<<endl;
         res.status=ParseStatus::ERROR;
         return res;
     }
@@ -146,25 +151,32 @@ ParseBulkString parseString(string &s)
             len=len*10+(s[i]-'0');
         }
         else{
+            cout<<"Invalid number after $ sign: "<<i<<" "<<s[i]<<endl;
             res.status=ParseStatus::ERROR;
             return res;
         }
     }
+    
     i+=2;
+
     if(i+len+2>s.size())
     {
         res.status=ParseStatus::NEED_MORE_DATA;
         return res;
     }
+   
     if(s[i+len]!='\r' || s[i+len+1]!='\n')
     {
         res.status=ParseStatus::ERROR;
+        cout<<"Invalid bulk string format\n";
+        return res;
     }
     for(int idx=i;idx<i+len;idx++)
     {
         res.bulkString+=s[idx];
     }
     res.bytesConsumed=i+len+2;
+    res.status=ParseStatus::OK;
     return res;
 
 }
@@ -269,13 +281,15 @@ int main()
                     while(bytes>0)
                     {
                         string mess(buffer,bytes);
+                        
                         user.inputBuffer+=mess;
                         memset(buffer,0,sizeof(buffer));
                         bytes=recv(fd,buffer,sizeof(buffer),0);
                         
 
                     }
-                    ParseArrayHeader res=parseHeader(user.inputBuffer);
+                    
+                    ArrayHeaderResult res=parseHeader(user.inputBuffer);
                     if(res.status==ParseStatus::OK)
                     {
                         cout<<"Array Length : "<<res.arrayLength<<endl;
@@ -287,9 +301,13 @@ int main()
                             cout<<"Bytes : "<<bsres.bytesConsumed<<endl;
                         }
                         else if(bsres.status==ParseStatus::NEED_MORE_DATA)
-                        continue;
+                        {
+                            cout<<"Need More Data\n";
+                            continue;
+
+                    }
                         else{
-                             cout<<"Formate Error\n";
+                            cout<<"Formate Error\n";
                             close(fd);
                             epoll_event ev;
                             ev.events=EPOLLIN;
@@ -313,7 +331,8 @@ int main()
                         ev.data.fd=fd;
                         epoll_ctl(epfd,EPOLL_CTL_DEL,fd,&ev);
                     }
-                    cout<<user.inputBuffer<<endl;
+                    
+                    
 
                 }
                 else if(bytes==0)
