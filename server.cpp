@@ -48,6 +48,7 @@ class Client
     public:
     int fd;
     string inputBuffer;
+    int bytesConsumed;
     Client()
     {
         
@@ -55,6 +56,7 @@ class Client
     Client(int fd)
     {
         this->fd=fd;
+        this->bytesConsumed=0;
     }
     
 };
@@ -305,7 +307,7 @@ int main()
                             cout<<"Need More Data\n";
                             continue;
 
-                    }
+                        }
                         else{
                             cout<<"Formate Error\n";
                             close(fd);
