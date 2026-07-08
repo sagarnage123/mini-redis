@@ -49,6 +49,7 @@ class Client
     int fd;
     string inputBuffer;
     int bytesConsumed;
+    int arrayLength;
     Client()
     {
         
@@ -57,28 +58,29 @@ class Client
     {
         this->fd=fd;
         this->bytesConsumed=0;
+        this->arrayLength=0;
     }
     
 };
 
-RespType getRespType(string &inputBuffer)
+RespType getRespType(string &inputBuffer,int offset=0)
 {
     if(inputBuffer.size()==0)
     return RespType::EMPTY;
     
-    if(inputBuffer[0]=='*')
+    if(inputBuffer[offset]=='*')
     return RespType::ARRAY;
     
-    if(inputBuffer[0]=='$')
+    if(inputBuffer[offset]=='$')
     return RespType::BULK_STRING;
     
-    if(inputBuffer[0]=='+')
+    if(inputBuffer[offset]=='+')
     return RespType::SIMPLE_STRING;
     
-    if(inputBuffer[0]==':')
+    if(inputBuffer[offset]==':')
     return RespType::INTEGER;
     
-    if(inputBuffer[0]=='-')
+    if(inputBuffer[offset]=='-')
     return RespType::ERROR;
     
     return RespType::INVALID;
@@ -120,23 +122,25 @@ BulkStringResult parseString(string &s,int offset=0)
    
     BulkStringResult
  res;
-    if(getRespType())
-    {
-        
-        res.status=isArray.status;
-        return res;
-    }
-   
-    int i=isArray.bytesConsumed;
+    
+ 
+    int i=offset;
     if(i>=s.size() || i+1>=s.size())
     {
-    
-        res.status=ParseStatus::NEED_MORE_DATA;
+     
+     res.status=ParseStatus::NEED_MORE_DATA;
+     return res;
+    }
+
+    if(getRespType(s,offset)!=RespType::BULK_STRING)
+    {
+        
+        res.status=ParseStatus::ERROR;
         return res;
     }
-    if(s[i]!='$' || !(s[i+1]>='1' && s[i+1]<='9'))
+
+    if(s[i]!='$' || !(s[i+1]>='0' && s[i+1]<='9'))
     {
-        cout<<"No $ or invalid number after $ sign: "<<i<<" "<<s[i]<<" "<<s[i+1]<<endl;
         res.status=ParseStatus::ERROR;
         return res;
     }
@@ -153,7 +157,6 @@ BulkStringResult parseString(string &s,int offset=0)
             len=len*10+(s[i]-'0');
         }
         else{
-            cout<<"Invalid number after $ sign: "<<i<<" "<<s[i]<<endl;
             res.status=ParseStatus::ERROR;
             return res;
         }
@@ -170,7 +173,7 @@ BulkStringResult parseString(string &s,int offset=0)
     if(s[i+len]!='\r' || s[i+len+1]!='\n')
     {
         res.status=ParseStatus::ERROR;
-        cout<<"Invalid bulk string format\n";
+        
         return res;
     }
     for(int idx=i;idx<i+len;idx++)
@@ -243,6 +246,17 @@ int main()
     cout<<"Epoll Watching Listening Socket\n";
     char buffer[1028]={0};
     epoll_event events[MAX_CONNECTIONS];
+    vector<vector<string>> commands(MAX_CONNECTIONS);
+
+    auto closeClientConnection=[&](int fd){
+                        close(fd);
+                        epoll_event ev;
+                        ev.events=EPOLLIN;
+                        ev.data.fd=fd;
+                        epoll_ctl(epfd,EPOLL_CTL_DEL,fd,&ev);
+                        commands[fd].clear();
+                        hash.erase(fd);
+    };
 
     while(1)
     {
@@ -290,33 +304,91 @@ int main()
                         
 
                     }
+                    if(user.arrayLength>0)
+                    {
+                        bool isError=false;
+                        while(user.arrayLength>0)
+                        {
+                            BulkStringResult bstr=parseString(user.inputBuffer,user.bytesConsumed);
+                            if(bstr.status==ParseStatus::OK)
+                            {
+                                commands[fd].push_back(bstr.bulkString);
+                                user.bytesConsumed=bstr.bytesConsumed;
+                                user.arrayLength--;
+                            }
+                            else if(bstr.status==ParseStatus::NEED_MORE_DATA)
+                            {
+                                break;
+
+                            }
+                            else{
+                                isError=true;
+                                cout<<"Formate Error\n";
+                                closeClientConnection(fd);
+                                break;
+                            }
+                        }
+                        if(isError || user.arrayLength>0)
+                        {
+                            if(!isError)
+                            cout<<"Need More Data\n";
+
+                            continue;
+                        }
+                        else{
+                            for(auto cmd:commands[fd])
+                            cout<<cmd<<" ";
+                            cout<<endl;
+                            user.inputBuffer=user.inputBuffer.substr(user.bytesConsumed);
+                            user.bytesConsumed=0;
+                        }
+                    }
                     
                     ArrayHeaderResult res=parseHeader(user.inputBuffer);
                     if(res.status==ParseStatus::OK)
                     {
-                        cout<<"Array Length : "<<res.arrayLength<<endl;
-                        cout<<"BytesConsumed : "<<res.bytesConsumed<<endl;
-                        auto bsres=parseString(user.inputBuffer);
-                        if(bsres.status==ParseStatus::OK)
+                        user.bytesConsumed=res.bytesConsumed;
+                        user.arrayLength=res.arrayLength;
+                        if(user.arrayLength>0)
                         {
-                            cout<<"Bulk String : "<<bsres.bulkString<<endl;
-                            cout<<"Bytes : "<<bsres.bytesConsumed<<endl;
-                        }
-                        else if(bsres.status==ParseStatus::NEED_MORE_DATA)
-                        {
-                            cout<<"Need More Data\n";
-                            continue;
+                            bool isError=0;
+                            while(user.arrayLength>0)
+                            {
+                                BulkStringResult bstr=parseString(user.inputBuffer,user.bytesConsumed);
+                                if(bstr.status==ParseStatus::OK)
+                                {
+                                    commands[fd].push_back(bstr.bulkString);
+                                    user.bytesConsumed=bstr.bytesConsumed;
+                                    user.arrayLength--;
+                                }
+                                else if(bstr.status==ParseStatus::NEED_MORE_DATA)
+                                {
+                                    break;
 
+                                }
+                                else{
+                                    isError=true;
+                                    cout<<"Formate Error\n";
+                                    closeClientConnection(fd);
+                                    break;
+                                }
+                            }
+                            if(isError || user.arrayLength>0)
+                            {
+                                if(!isError)
+                                cout<<"Need More Data\n";
+                                
+                                continue;
+                            }
+                            else{
+                                for(auto cmd:commands[fd])
+                                cout<<cmd<<" ";
+                                cout<<endl;
+                                user.inputBuffer=user.inputBuffer.substr(user.bytesConsumed);
+                                user.bytesConsumed=0;
+                            }
                         }
-                        else{
-                            cout<<"Formate Error\n";
-                            close(fd);
-                            epoll_event ev;
-                            ev.events=EPOLLIN;
-                            ev.data.fd=fd;
-                            epoll_ctl(epfd,EPOLL_CTL_DEL,fd,&ev);
-
-                        }
+                        
                     }
                     else if(res.status==ParseStatus::NEED_MORE_DATA)
                     {
@@ -327,11 +399,7 @@ int main()
                     else 
                     {
                         cout<<"Formate Error\n";
-                        close(fd);
-                        epoll_event ev;
-                        ev.events=EPOLLIN;
-                        ev.data.fd=fd;
-                        epoll_ctl(epfd,EPOLL_CTL_DEL,fd,&ev);
+                        closeClientConnection(fd);
                     }
                     
                     
@@ -340,25 +408,14 @@ int main()
                 else if(bytes==0)
                 {
                     cout<<fd<<" Connection Closed By Client\n";
-                    close(fd);
-                    epoll_event ev;
-                    ev.events=EPOLLIN;
-                    ev.data.fd=fd;
-                    epoll_ctl(epfd,EPOLL_CTL_DEL,fd,&ev);
-                   
-                    hash.erase(fd);
+                    closeClientConnection(fd);
                 }
                 else
                 {
                     if(errno!=EAGAIN)
                     {
                         cout<<strerror(errno)<<" "<<strerror(EAGAIN)<<" "<<fd<<endl;
-                        epoll_event ev;
-                        ev.events=EPOLLIN;
-                        ev.data.fd=fd;
-                        epoll_ctl(epfd,EPOLL_CTL_DEL,fd,&ev);
-                        close(fd);
-                        hash.erase(fd);
+                        closeClientConnection(fd);
                     }
                 }
 
