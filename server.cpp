@@ -258,6 +258,7 @@ int main()
     int serverFd=socket(AF_INET,SOCK_STREAM,0);
     unordered_map<int,Client> hash;
     CommandDispatcher exe;
+    Database db;
    
 
     if(serverFd<0)
@@ -367,12 +368,12 @@ int main()
 
     auto execute=[&](Client &user)
     {
-            for(auto cmd:user.argv)
-            cout<<cmd<<" ";
-            cout<<endl;
+            string res=exe.dispatch(user.argv,db);
             user.inputBuffer=user.inputBuffer.erase(0,user.bytesConsumed);
             user.bytesConsumed=0;
             user.argv.clear();
+
+            return res;
 
     };
 
@@ -426,7 +427,8 @@ int main()
                     ParseStatus res=parser(user.inputBuffer,user);
                     if(res==ParseStatus::OK)
                     {
-                        execute(user);
+                        string res=execute(user);
+                        send(fd,res.data(),res.size(),0);
                         
                     }
                     else if(res==ParseStatus::NEED_MORE_DATA)
