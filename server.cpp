@@ -64,6 +64,31 @@ class Client
     
 };
 
+class Database{
+    
+    unordered_map<string,string> kv;
+    public:
+    Database(){}
+
+    void set(string key,string val)
+    {
+        kv[key]=val;
+    }
+
+    string get(string key)
+    {
+        if(kv.find(key)==kv.end())
+        return "";
+        return kv[key];
+    }
+    void del(string key)
+    {
+        kv.erase(key);
+    }
+
+
+};
+
 RespType getRespType(string &inputBuffer,int offset=0)
 {
     if(inputBuffer.size()==0)
@@ -202,6 +227,7 @@ int main()
 {
     int serverFd=socket(AF_INET,SOCK_STREAM,0);
     unordered_map<int,Client> hash;
+   
 
     if(serverFd<0)
     {
@@ -247,6 +273,7 @@ int main()
     cout<<"Epoll Watching Listening Socket\n";
     char buffer[1028]={0};
     epoll_event events[MAX_CONNECTIONS];
+    
     
 
     auto closeClientConnection=[&](int fd){
