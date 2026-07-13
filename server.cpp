@@ -88,6 +88,35 @@ class Database{
 
 
 };
+string executePing(vector<string>&argv,Database&db)
+{
+    return "+PONG\r\n";
+}
+class CommandDispatcher{
+    unordered_map<string,function<string(vector<string>&,Database&)>> mapper;
+
+    public:
+    CommandDispatcher()
+    {
+        //map the functions once created
+        mapper["PING"]=executePing;
+    }
+
+    string dispatch(vector<string>&argv,Database&db)
+    {
+        string command=argv[0];
+        transform(command.begin(), command.end(),
+          command.begin(),
+          ::toupper);
+        auto it = mapper.find(command);
+
+        if (it != mapper.end())
+            return it->second(argv, db);
+
+        return "-ERR unknown command\r\n";
+    }
+
+};
 
 RespType getRespType(string &inputBuffer,int offset=0)
 {
@@ -211,6 +240,7 @@ BulkStringResult parseString(string &s,int offset=0)
     return res;
 
 }
+
 void makeNonBlock(int fd)
 {
     if(fd<0)
@@ -227,6 +257,7 @@ int main()
 {
     int serverFd=socket(AF_INET,SOCK_STREAM,0);
     unordered_map<int,Client> hash;
+    CommandDispatcher exe;
    
 
     if(serverFd<0)
