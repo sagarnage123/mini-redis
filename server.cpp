@@ -50,6 +50,7 @@ class Client
     string inputBuffer;
     int bytesConsumed;
     int arrayLength;
+    vector<string> argv;
     Client()
     {
         
@@ -246,7 +247,7 @@ int main()
     cout<<"Epoll Watching Listening Socket\n";
     char buffer[1028]={0};
     epoll_event events[MAX_CONNECTIONS];
-    vector<vector<string>> commands(MAX_CONNECTIONS);
+    
 
     auto closeClientConnection=[&](int fd){
                         close(fd);
@@ -254,8 +255,67 @@ int main()
                         ev.events=EPOLLIN;
                         ev.data.fd=fd;
                         epoll_ctl(epfd,EPOLL_CTL_DEL,fd,&ev);
-                        commands[fd].clear();
                         hash.erase(fd);
+    };
+
+    auto parser=[&](string &userInput,Client &user){
+
+        ParseStatus res;
+        if(user.arrayLength==0)
+        {
+           ArrayHeaderResult headerRes=parseHeader(userInput);
+            if(headerRes.status==ParseStatus::OK)
+            {
+                user.arrayLength=headerRes.arrayLength;
+                user.bytesConsumed=headerRes.bytesConsumed;
+            }
+            else if(headerRes.status==ParseStatus::NEED_MORE_DATA)
+            {
+                res=ParseStatus::NEED_MORE_DATA;
+                return res;
+            }
+            else{
+                res=ParseStatus::ERROR;
+                return res;
+            }
+        }
+        bool isError=false;
+        while(user.arrayLength>0)
+        {
+            BulkStringResult bstr=parseString(user.inputBuffer,user.bytesConsumed);
+            if(bstr.status==ParseStatus::OK)
+            {
+                user.argv.push_back(bstr.bulkString);
+                user.bytesConsumed=bstr.bytesConsumed;
+                user.arrayLength--;
+            }
+            else if(bstr.status==ParseStatus::NEED_MORE_DATA)
+            {
+                res=ParseStatus::NEED_MORE_DATA;
+                return res;
+
+            }
+            else{
+                isError=true;
+                cout<<"Formate Error\n";
+                res=ParseStatus::ERROR;
+                return res;
+            }
+        }
+        res=ParseStatus::OK;
+        return res;
+
+    };
+
+    auto execute=[&](Client &user)
+    {
+            for(auto cmd:user.argv)
+            cout<<cmd<<" ";
+            cout<<endl;
+            user.inputBuffer=user.inputBuffer.erase(0,user.bytesConsumed);
+            user.bytesConsumed=0;
+            user.argv.clear();
+
     };
 
     while(1)
@@ -304,93 +364,14 @@ int main()
                         
 
                     }
-                    if(user.arrayLength>0)
-                    {
-                        bool isError=false;
-                        while(user.arrayLength>0)
-                        {
-                            BulkStringResult bstr=parseString(user.inputBuffer,user.bytesConsumed);
-                            if(bstr.status==ParseStatus::OK)
-                            {
-                                commands[fd].push_back(bstr.bulkString);
-                                user.bytesConsumed=bstr.bytesConsumed;
-                                user.arrayLength--;
-                            }
-                            else if(bstr.status==ParseStatus::NEED_MORE_DATA)
-                            {
-                                break;
-
-                            }
-                            else{
-                                isError=true;
-                                cout<<"Formate Error\n";
-                                closeClientConnection(fd);
-                                break;
-                            }
-                        }
-                        if(isError || user.arrayLength>0)
-                        {
-                            if(!isError)
-                            cout<<"Need More Data\n";
-
-                            continue;
-                        }
-                        else{
-                            for(auto cmd:commands[fd])
-                            cout<<cmd<<" ";
-                            cout<<endl;
-                            user.inputBuffer=user.inputBuffer.substr(user.bytesConsumed);
-                            user.bytesConsumed=0;
-                        }
-                    }
                     
-                    ArrayHeaderResult res=parseHeader(user.inputBuffer);
-                    if(res.status==ParseStatus::OK)
+                    ParseStatus res=parser(user.inputBuffer,user);
+                    if(res==ParseStatus::OK)
                     {
-                        user.bytesConsumed=res.bytesConsumed;
-                        user.arrayLength=res.arrayLength;
-                        if(user.arrayLength>0)
-                        {
-                            bool isError=0;
-                            while(user.arrayLength>0)
-                            {
-                                BulkStringResult bstr=parseString(user.inputBuffer,user.bytesConsumed);
-                                if(bstr.status==ParseStatus::OK)
-                                {
-                                    commands[fd].push_back(bstr.bulkString);
-                                    user.bytesConsumed=bstr.bytesConsumed;
-                                    user.arrayLength--;
-                                }
-                                else if(bstr.status==ParseStatus::NEED_MORE_DATA)
-                                {
-                                    break;
-
-                                }
-                                else{
-                                    isError=true;
-                                    cout<<"Formate Error\n";
-                                    closeClientConnection(fd);
-                                    break;
-                                }
-                            }
-                            if(isError || user.arrayLength>0)
-                            {
-                                if(!isError)
-                                cout<<"Need More Data\n";
-                                
-                                continue;
-                            }
-                            else{
-                                for(auto cmd:commands[fd])
-                                cout<<cmd<<" ";
-                                cout<<endl;
-                                user.inputBuffer=user.inputBuffer.substr(user.bytesConsumed);
-                                user.bytesConsumed=0;
-                            }
-                        }
+                        execute(user);
                         
                     }
-                    else if(res.status==ParseStatus::NEED_MORE_DATA)
+                    else if(res==ParseStatus::NEED_MORE_DATA)
                     {
                         cout<<"Need More Data\n";
                         continue;
